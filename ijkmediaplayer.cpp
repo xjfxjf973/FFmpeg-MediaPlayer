@@ -1,5 +1,6 @@
 #include "ijkmediaplayer.h"
 #include <iostream>
+#include "ffmsg.h"
 
 IjkMediaPlayer::IjkMediaPlayer()
 {
@@ -116,6 +117,11 @@ int IjkMediaPlayer::ijkmp_msg_loop(void *arg)
 {
     msg_loop_(arg);
     return 0;
+}
+
+void IjkMediaPlayer::AddVideoRefreshCallback(std::function<int (const Frame *)> callback)
+{
+    ffplayer_->AddVideoRefreshCallback(callback);
 }
 
 

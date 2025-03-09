@@ -5,6 +5,7 @@
 #include "ff_ffplay_def.h"
 
 #include <thread>
+#include <functional>
 
 //解码器，管理数据队列
 class Decoder
@@ -68,6 +69,22 @@ public:
     int read_thread();
 
     std::thread *read_thread_;
+
+    int video_refresh_thread();
+    void video_refresh(double *remaining_time);
+    //视频画面输出相关
+    std::thread *video_refresh_thread_ = NULL;
+
+    std::function<int(const Frame *)> video_refresh_callback_ = NULL;
+    void AddVideoRefreshCallback(std::function<int(const Frame *)> callback);
+
+    int get_master_sync_type();
+    double get_master_clock();
+    int av_sync_type = AV_SYNC_AUDIO_MASTER;         //音视频同步类型，默认audio master
+    Clock audclk;            //音频时钟
+    Clock vidclk;           //视频时钟
+    double  audio_clock=0;       //当前音频帧的PTS+当前帧Duration
+
 
     //帧队列
     FrameQueue pictq;       //视频Frame队列

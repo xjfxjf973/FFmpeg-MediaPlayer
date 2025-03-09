@@ -19,7 +19,7 @@ public:
     int InitSignalsAndSlots();
 
     int message_loop(void *arg);
-
+    int OutputVideo(const Frame *frame);
     void OnPlayOrPause();
     void OnStop();
 

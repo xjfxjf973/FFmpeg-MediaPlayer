@@ -1,7 +1,6 @@
 #ifndef FFPLAY__FF_FFPLAY_DEF_H
 #define FFPLAY__FF_FFPLAY_DEF_H
 
-
 #include <inttypes.h>
 #include <math.h>
 #include <limits.h>
@@ -30,6 +29,23 @@ extern "C" {
 #include "SDL_thread.h"
 
 #include <assert.h>
+
+enum RET_CODER
+{
+    RET_ERR_UNKNOWN = -2,           //未知错误
+    RET_FAIL = -1,                  //失收
+    RET_OK = 0,                     //正常
+    RET_ERR_OPEN_FILE,              //打开文件失败
+    RET_ERR_NOT_SUPPORT,            //不支持
+    RET_ERR_OUTOFMEMORY,            //没有内存
+    RET_ERR_STACKOVERFLOW,          //溢出
+    RET_ERR_NULLREFERENCE,          //空参考
+    RET_ERR_ARGUMENTOUTOFRANGE,     //
+    RET_ERR_PARAMISMATCH,           //
+    RET_ERR_MISMATCH_CODE,          //没有匹配的编解码器
+    RET_ERR_EAGAIN,
+    RET_ERR_EOF
+};
 
 /*
  * START: buffering after prepared/seeked
@@ -86,7 +102,7 @@ extern "C" {
 #define AUDIO_DIFF_AVG_NB   20
 
 /* polls for possible required screen refresh at least this often, should be less than 1/fps */
-#define REFRESH_RATE 0.01
+//#define REFRESH_RATE 0.01
 
 /* NOTE: the size must be big enough to compensate the hardware audio buffersize size */
 /* TODO: We assume that a decoded and resampled frame fits into this buffer */
@@ -158,6 +174,24 @@ typedef struct FrameQueue {
     PacketQueue *pktq;                  //数据包缓存队列
 } FrameQueue;
 
+//这里讲的系统时钟 是通过av_gettime_relative()获取到的时钟，单位为微秒
+typedef struct Clock{
+    double pts;     //时钟基础，当前帧(待播放)显示时间戳，播放后，当前帧变成上一帧
+    //当前pts与当的系统时钟的差值，audio、video    对于该值是独立的
+    double pts_drift;       //clock base minus time at which we updated the'clock
+    //当前时钟(如视频时钟)最后一次更新时间，也可称当前时钟时间
+    double last_updated;    //最后一次更新系统时钟
+} Clock;
+
+//音视频同步方式，缺省以音频为基准
+enum{
+    AV_SYNC_UNKNOW_MASTER = -1,
+    AV_SYNC_AUDIO_MASTER,           //以音频为基准
+    AV_SYNC_VIDEO_MASTER,           //以视频为基准
+//    AV_SYNC_EXTERNAL_CLOCK        //以为外部时钟为基准
+};
+
+
 int packet_queue_put(PacketQueue *q, AVPacket *pkt);
 
 int packet_queue_put_nullpacket(PacketQueue *q, int stream_index);
@@ -194,6 +228,15 @@ void frame_queue_push(FrameQueue *f);
 
 void frame_queue_next(FrameQueue *f);
 
+int frame_queue_nb_remaining(FrameQueue *f);
+
+int64_t frame_queue_last_pos(FrameQueue *f);
+
+//时钟相关
+double get_clock(Clock *c);
+void set_clock_at(Clock *c,double pts,double time);
+void set_clock(Clock *c,double pts);
+void init_clock(Clock *c);
 
 //typedef struct VideoState {
 //    SDL_Thread *read_tid;

@@ -22,6 +22,7 @@ SOURCES += \
     ff_ffplay_def.cpp \
     ffmsg_queue.cpp \
     ijkmediaplayer.cpp \
+    imagescaler.cpp \
     main.cpp \
     mainwind.cpp \
     playlistwind.cpp \
@@ -35,6 +36,7 @@ HEADERS += \
     ffmsg.h \
     ffmsg_queue.h \
     ijkmediaplayer.h \
+    imagescaler.h \
     mainwind.h \
     playlistwind.h \
     titlebar.h

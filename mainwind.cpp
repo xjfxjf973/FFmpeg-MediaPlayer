@@ -61,6 +61,11 @@ int MainWind::message_loop(void *arg)
 
 }
 
+int MainWind::OutputVideo(const Frame *frame)
+{
+    return ui->showWind->Draw(frame);
+}
+
 void MainWind::OnPlayOrPause()
 {
     qDebug()<<"OnPlayOrPause call";
@@ -76,6 +81,10 @@ void MainWind::OnPlayOrPause()
             mp_=NULL;
             return;
         }
+
+        mp_->AddVideoRefreshCallback(std::bind(&MainWind::OutputVideo,this,
+                                               std::placeholders::_1));
+
         //设置url
         mp_->ijkmp_set_data_source("test.mp4");
         //准备工作

@@ -75,6 +75,8 @@ int FFPlayer::stream_open(const char *filename)
         goto fail;
 
     //初始化时钟
+//    init_clock(&vidclk);
+    init_clock(&audclk);
 
     //初始化音量等
 
@@ -84,6 +86,7 @@ int FFPlayer::stream_open(const char *filename)
     read_thread_=new std::thread(&FFPlayer::read_thread,this);
 
     //创建视频刷新线程
+    video_refresh_thread_ = new std::thread(&FFPlayer::video_refresh_thread,this);
     return 0;
 fail:
     stream_close();
@@ -229,6 +232,10 @@ void FFPlayer::stream_component_close(int stream_index)
 
         break;
     case AVMEDIA_TYPE_VIDEO:
+        //请求退出视频画面刷新线程
+        if(video_refresh_thread_ && video_refresh_thread_->joinable()){
+            video_refresh_thread_->join();  //等待线程退出
+        }
         std::cout<<__FUNCTION__<<"  AVMEDIA_TYPE_VIDEO\n";
         //请求终止解码器线程
         viddec.decoder_abort(&pictq);
@@ -387,6 +394,11 @@ static int audio_decode_frame(FFPlayer *is)
         resampled_data_size = data_size;
     }
 
+    if(!isnan(af->pts))
+        is->audio_clock=af->pts;
+    else
+        is->audio_clock=NAN;
+
     frame_queue_next(&is->sampq);       //才会真正释放frame
 
     ret=resampled_data_size;
@@ -439,6 +451,10 @@ static void sdl_audio_callback(void *opaque, Uint8 *stream, int len)
         is->audio_buf_index += len1;
     }
 
+    if(!isnan(is->audio_clock)){
+        //设置时钟
+        set_clock(&is->audclk,is->audio_clock);
+    }
 }
 
 int FFPlayer::audio_open(int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate, AudioParams *audio_hw_params)
@@ -601,10 +617,13 @@ int FFPlayer::read_thread()
             eof=0;
         }
 
-        //插入队列 先只处理音频包
+        ////插入队列 先只处理音频包
         if(pkt->stream_index == audio_stream){
             printf("audio ===== pkt pts:%ld, dts:%ld\n",pkt->pts/48,pkt->dts);
             packet_queue_put(&audioq,pkt);
+        } else if(pkt->stream_index == video_stream){
+            printf("video ===== pkt pts:%ld, dts:%ld\n",pkt->pts/48,pkt->dts);
+            packet_queue_put(&videoq,pkt);
         } else{
             av_packet_unref(pkt);   //不如队列则直接释放数据
         }
@@ -614,6 +633,96 @@ int FFPlayer::read_thread()
 
 fail:
     return 0;
+}
+
+/* polls for possible required screen refresh at least this often, should be less than 1/fps */
+#define REFRESH_RATE 0.01   //每帧休眠10ms
+int FFPlayer::video_refresh_thread()
+{
+    double remaining_time = 0.0;
+    while (!abort_request) {
+        if (remaining_time > 0.0)
+            av_usleep((int)(int64_t) (remaining_time * 1000000.0));
+        remaining_time = REFRESH_RATE;
+        video_refresh(&remaining_time);
+    }
+    std::cout << __FUNCTION__ << " leave" << std::endl;
+
+}
+
+void FFPlayer::video_refresh(double *remaining_time)
+{
+    Frame *vp = NULL;
+    //目前我们先是只有队列里面有视频帧可以播放，就先播放出来
+    //判断有没有视频画面
+    if(video_st) {
+        if (frame_queue_nb_remaining(&pictq) == 0) {
+            //什么都不用做，可以直接退出了
+            return;
+        }
+        //能跑到这里说明帧队列不为空，肯定有frame可以读取
+        vp = frame_queue_peek(&pictq); //读取待显示帧
+
+        //对比audio的时间戳
+        double diff=vp->pts - get_clock(&audclk);  //get_master_clock();
+
+        std::cout<<__FUNCTION__<<"vp->pts:"<<vp->pts<<" - af->pts:"<<get_clock(&audclk)<<", diff"<<diff<<std::endl;
+
+        if(diff>0){
+            *remaining_time=FFMIN(*remaining_time,diff);
+            return;
+        }
+
+        //刷新显示
+        if(video_refresh_callback_)
+            video_refresh_callback_(vp);
+        else
+            std::cout << __FUNCTION__ << " video_refresh_callback_ NULL" << std::endl ;
+        frame_queue_next(&pictq);
+        //当前vp帧出队列
+    }
+
+}
+
+void FFPlayer::AddVideoRefreshCallback(std::function<int (const Frame *)> callback)
+{
+    video_refresh_callback_ =callback;
+}
+
+int FFPlayer::get_master_sync_type()
+{
+    if (av_sync_type == AV_SYNC_VIDEO_MASTER) {
+        if (video_st)
+            return AV_SYNC_VIDEO_MASTER;
+        else
+            return AV_SYNC_AUDIO_MASTER;
+    } else if (av_sync_type == AV_SYNC_AUDIO_MASTER) {
+        if (audio_st)
+            return AV_SYNC_AUDIO_MASTER;
+        else if(video_st)
+            return AV_SYNC_VIDEO_MASTER;
+        else
+            return AV_SYNC_UNKNOW_MASTER;
+    }
+}
+
+double FFPlayer::get_master_clock()
+{
+    double val;
+
+
+    switch (get_master_sync_type()) {
+    case AV_SYNC_VIDEO_MASTER:
+        //val=get_clock(&vidclk);
+        break;
+    case AV_SYNC_AUDIO_MASTER:
+        val=get_clock(&audclk);
+        break;
+    default:
+        val=get_clock(&audclk);
+        break;
+    }
+    return val;
 }
 
 Decoder::Decoder()
